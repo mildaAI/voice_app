@@ -1,5 +1,6 @@
 const recordBtn = document.getElementById('record-btn');
 const chatBox = document.getElementById('chat-box');
+let currentAudio = null;
 
 // --- WebSocket Setup ---
 const socket = new WebSocket(`ws://${window.location.host}`);
@@ -70,6 +71,13 @@ if (SpeechRecognition) {
 }
 
 recordBtn.addEventListener('click', () => {
+    // Stop any currently playing audio
+    if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
+        currentAudio = null;
+    }
+    
     // If the AI is currently speaking, stop it.
     if (window.speechSynthesis.speaking) {
         window.speechSynthesis.cancel();
@@ -155,9 +163,16 @@ function playAudio(audioData, isBase64) {
             audioUrl = audioData;
         }
         
+        // Stop any currently playing audio
+        if (currentAudio) {
+            currentAudio.pause();
+            currentAudio.currentTime = 0;
+        }
+        
         // Create and play audio element
         const audio = new Audio();
         audio.src = audioUrl;
+        currentAudio = audio; // Store reference to stop it later
         
         audio.onerror = (e) => {
             console.error('Audio playback error:', e);
