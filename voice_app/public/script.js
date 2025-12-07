@@ -10,15 +10,13 @@ socket.onopen = () => {
 
 socket.onmessage = (event) => {
     const message = JSON.parse(event.data);
-    if (message.type === 'ai-answer') {
+    if (message.type === 'ai-answer-audio') {
         // Remove the "thinking" message before adding the real answer
         const thinkingMessage = document.getElementById('thinking-message');
         if (thinkingMessage) thinkingMessage.remove();
 
-        const aiAnswer = message.data;
-        console.log('Received AI answer:', aiAnswer);
-        addMessageToChat(aiAnswer, 'ai');
-        speakText(aiAnswer);
+        console.log('Received audio response');
+        playAudio(message.data, message.isBase64);
     }
 };
 
@@ -103,8 +101,11 @@ function showThinkingIndicator() {
 }
 
 async function sendPromptToServer(text) {
-    // Show the thinking indicator immediately
+    // Show the thinking indicator and spinner
     showThinkingIndicator();
+    const spinner = document.getElementById('spinner');
+    spinner.classList.remove('hidden');
+    
     try {
         const response = await fetch('/api/prompt', {
             method: 'POST',
@@ -114,16 +115,62 @@ async function sendPromptToServer(text) {
             body: JSON.stringify({ text }),
         });
 
+        const data = await response.json();
+        
+        // Hide spinner and remove the thinking indicator
+        spinner.classList.add('hidden');
+        const thinkingMessage = document.getElementById('thinking-message');
+        if (thinkingMessage) thinkingMessage.remove();
+
         if (!response.ok) {
-            // If the server failed to forward the prompt (e.g., n8n is down), show an error.
-            const thinkingMessage = document.getElementById('thinking-message');
-            if (thinkingMessage) thinkingMessage.remove();
-            addMessageToChat('Sorry, I could not connect to the AI agent. Please try again later.', 'ai');
+            addMessageToChat(`Error: ${data.error}`, 'ai');
+            return;
+        }
+        
+        // Play the audio response
+        if (data.audio) {
+            playAudio(data.audio, true); // true indicates it's base64
+        } else {
+            addMessageToChat('No audio response received.', 'ai');
         }
 
     } catch (error) {
         console.error('Error sending prompt to server:', error);
+        spinner.classList.add('hidden');
+        const thinkingMessage = document.getElementById('thinking-message');
+        if (thinkingMessage) thinkingMessage.remove();
         addMessageToChat('Could not send your message to the server.', 'ai');
+    }
+}
+
+function playAudio(audioData, isBase64) {
+    try {
+        let audioUrl;
+        
+        if (isBase64) {
+            // Create a data URL from base64
+            audioUrl = 'data:audio/mpeg;base64,' + audioData;
+        } else {
+            // Use the URL directly
+            audioUrl = audioData;
+        }
+        
+        // Create and play audio element
+        const audio = new Audio();
+        audio.src = audioUrl;
+        
+        audio.onerror = (e) => {
+            console.error('Audio playback error:', e);
+            addMessageToChat('Could not play audio response.', 'ai');
+        };
+        
+        audio.play().catch(error => {
+            console.error('Error playing audio:', error);
+            addMessageToChat('Could not play audio response.', 'ai');
+        });
+    } catch (error) {
+        console.error('Error processing audio:', error);
+        addMessageToChat('Could not play audio response.', 'ai');
     }
 }
 

@@ -58,9 +58,24 @@ app.post('/api/prompt', async (req, res) => {
 
     try {
         // Make sure your n8n webhook is configured to expect a POST request with a JSON body like { "text": "..." }
-        await axios.post(N8N_AGENT_WEBHOOK_URL, { text });
-        res.status(200).json({ message: 'Prompt forwarded to n8n successfully' });
+        // The n8n Response Webhook Node with "respond with binary" will return the binary audio data directly
+        const response = await axios.post(N8N_AGENT_WEBHOOK_URL, { text }, { 
+            responseType: 'arraybuffer' // Expect binary data from n8n
+        });
         console.log('--- PROMPT FORWARDED TO N8N SUCCESSFULLY ---');
+        
+        // Convert the binary audio data to base64 for sending to the UI
+        const audioBase64 = Buffer.from(response.data).toString('base64');
+        
+        if (!audioBase64 || audioBase64.length === 0) {
+            return res.status(500).json({ error: 'No audio data received from n8n' });
+        }
+        
+        // Return the audio response from n8n to the UI
+        res.status(200).json({ 
+            message: 'Prompt processed successfully',
+            audio: audioBase64
+        });
     } catch (error) {
         console.error('--- ERROR FORWARDING PROMPT TO N8N ---');
         if (error.response) {
@@ -81,19 +96,31 @@ app.post('/api/prompt', async (req, res) => {
 
 /**
  * Webhook to listen for the answer from the n8n agent.
- * n8n should call this endpoint with the final answer.
+ * n8n should call this endpoint with the audio file.
+ * Expected body: { "audio": "base64-encoded-audio" } or { "audioUrl": "https://..." }
  */
 app.post('/api/n8n-answer', (req, res) => {
-    const { answer } = req.body; // Assuming n8n sends a body like { "answer": "..." }
-    console.log(`Received answer from n8n: "${answer}"`);
+    const { audio, audioUrl } = req.body;
+    
+    if (!audio && !audioUrl) {
+        return res.status(400).json({ error: 'Audio data or URL is required' });
+    }
 
-    // Broadcast the answer to all connected clients.
+    console.log(`Received audio response from n8n`);
+
+    // Broadcast the audio to all connected clients.
+    const audioData = audio || audioUrl; // Use base64 or URL
     clients.forEach(client => {
         if (client.readyState === client.OPEN) {
-            client.send(JSON.stringify({ type: 'ai-answer', data: answer }));
+            client.send(JSON.stringify({ 
+                type: 'ai-answer-audio', 
+                data: audioData,
+                isBase64: !!audio,
+                isUrl: !!audioUrl
+            }));
         }
     });
-    res.status(200).send('Answer received');
+    res.status(200).json({ message: 'Audio received and broadcast to clients' });
 });
 
 const PORT = process.env.PORT || 3000;
